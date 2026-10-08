@@ -48,3 +48,11 @@ func TestClockCannotMoveBackward(t *testing.T) {
 		t.Fatal("backward time shortened a persisted control interval")
 	}
 }
+
+func TestExpiredEmergencyWeightMustMatchTruckPolicy(t *testing.T) {
+	c := testConfig()
+	c.Policy.Weights[EmergencyVehicle] = 1
+	if err := c.Validate(); err == nil {
+		t.Fatal("configuration contradicted expired-emergency truck-weight policy")
+	}
+}
