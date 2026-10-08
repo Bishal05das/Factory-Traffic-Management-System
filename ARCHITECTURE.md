@@ -181,7 +181,7 @@ There is no `sleep` in an HTTP handler and no long-lived database transaction wa
 
 ## Emergency preemption example
 
-Assume NORTH/SOUTH is confirmed GREEN and an EAST emergency arrives. The following example uses the proposed durations; each arrow represents a short operation, not an open transaction lasting through the interval.
+Assume NORTH/SOUTH is confirmed GREEN and an EAST emergency arrives. The following example uses the configured durations; each arrow represents a short operation, not an open transaction lasting through the interval.
 
 ```mermaid
 sequenceDiagram
@@ -193,25 +193,25 @@ sequenceDiagram
     participant Scheduler
     Sensor->>API: EAST emergency arrival
     API->>App: Validated event
-    App->>DB: Lock A; deduplicate; persist queue and emergency
-    App->>DB: Persist WAIT_YELLOW and yellow batch; commit
-    App-->>API: Event accepted; physical transition pending
+    App->>DB: Lock A, deduplicate, persist queue and emergency
+    App->>DB: Persist WAIT_YELLOW and yellow batch, commit
+    App-->>API: Event accepted, physical transition pending
     API-->>Sensor: Accepted result
     Controller->>API: Poll committed controller commands
-    API-->>Controller: NORTH/SOUTH YELLOW; EAST/WEST RED
+    API-->>Controller: NORTH/SOUTH YELLOW, EAST/WEST RED
     Controller->>API: Correlated ACKs for batch
     API->>App: Process each feedback transaction
-    App->>DB: Last ACK starts YELLOW_HOLD deadline; commit
+    App->>DB: Last ACK starts YELLOW_HOLD deadline, commit
     Scheduler->>App: Tick after confirmed 5-second hold
-    App->>DB: Lock A; persist WAIT_RED and all-red batch; commit
+    App->>DB: Lock A, persist WAIT_RED and all-red batch, commit
     Controller->>API: Poll and confirm fresh all-red batch
     API->>App: Process red ACKs
-    App->>DB: Last ACK starts ALL_RED_HOLD deadline; commit
+    App->>DB: Last ACK starts ALL_RED_HOLD deadline, commit
     Scheduler->>App: Tick after confirmed 2-second clearance
-    App->>DB: Lock A; reselect intent; persist WAIT_GREEN batch; commit
-    Controller->>API: Poll and ACK EAST/WEST GREEN; NORTH/SOUTH RED
+    App->>DB: Lock A, reselect intent, persist WAIT_GREEN batch, commit
+    Controller->>API: Poll and ACK EAST/WEST GREEN, NORTH/SOUTH RED
     API->>App: Process green ACKs
-    App->>DB: Persist GREEN with EMERGENCY mode; commit
+    App->>DB: Persist GREEN with EMERGENCY mode, commit
 ```
 
 Each intermediate status remains observable on the dashboard. A timeout or device fault at any step takes the failure path. The EAST emergency remains queued until clearance; a GREEN ACK does not clear it. Duplicate arrival submission returns the original outcome without adding another emergency or creating another transition batch.
