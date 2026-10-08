@@ -55,9 +55,9 @@ flowchart LR
     Sim[Optional REST simulator process] -->|Controller API| API
 ```
 
-Proposed topology: one backend process and one scheduler, a Next.js application, and PostgreSQL on a private Compose network. The frontend proxies `/api` to the backend so browser code can use same-origin requests. Docker service names are resolved by server-side code, not by the user's browser. PostgreSQL has a health check; migrations finish before the API accepts traffic; the API reports database readiness; frontend startup does not imply the API is ready. Stopping containers retains the database volume.
+The topology uses one backend process and one scheduler, a Next.js application, and PostgreSQL on a private Compose network. The frontend proxies `/api` to the backend so browser code can use same-origin requests. Docker service names are resolved by server-side code, not by the user's browser. PostgreSQL has a health check; migrations finish before the API accepts traffic; the API reports database readiness; frontend startup does not imply the API is ready. Stopping containers retains the database volume.
 
-Single-backend deployment is a proposed first-version limit. Row locks protect concurrent requests and duplicate scheduler ticks, but alone do not authorize multiple processes to invalidate physical state independently on startup. Multi-instance deployment would require a controller-owner lease, leader election, and fencing before it is supported.
+Single-backend deployment is a first-version limit, enforced by a session-level PostgreSQL advisory ownership lock. Row locks protect concurrent requests and scheduler ticks. Multi-instance deployment would require leader election and distributed controller ownership before it is supported.
 
 ## Junction aggregate and consistency
 
@@ -74,7 +74,7 @@ Different junctions can progress concurrently. Requests affecting the same junct
 
 Expected business rejections, such as a stale vehicle event, can be recorded and committed as audit outcomes without changing the queue. SQL/infrastructure errors roll back the operation. Duplicate and conflict handling must not abort the transaction before the audit can be written: use conflict-aware inserts and inspect the previously persisted event.
 
-The globally unique sensor event ID is enforced by a primary key, including submissions claiming different junctions. Compare canonical validated fields, not raw JSON formatting. Sequence high-water marks belong to a vehicle within its junction/direction stream; a direction-wide high-water rejection would incorrectly discard reordered events for different vehicles. Sensor receipt time and domain acceptance time are distinct: receipt is recorded at ingress, while acceptance under the junction lock defines serialized control order and waiting timers. Policy confirmation remains pending.
+The globally unique sensor event ID is enforced by a primary key, including submissions claiming different junctions. Compare canonical validated fields, not raw JSON formatting. Sequence high-water marks belong to a vehicle within its junction/direction stream; a direction-wide high-water rejection would incorrectly discard reordered events for different vehicles. Server acceptance under the junction lock defines serialized control order and waiting timers. Device timestamp is retained separately from server acceptance time; the first version records server receipt at the transactional acceptance boundary rather than persisting an extra ingress-clock field.
 
 ## Operating mode, stage, and evidence
 
@@ -85,7 +85,7 @@ Mode and stage answer different questions:
 - **Desired signal:** the backend's requested RED, YELLOW, or GREEN for each direction.
 - **Actual signal:** latest trusted controller-confirmed RED, YELLOW, GREEN, or UNKNOWN, with evidence timestamp and command correlation.
 
-Proposed mode precedence is FAILURE, then EMERGENCY, then unexpired MANUAL, then AUTOMATIC. A manual request can remain stored while an emergency temporarily takes precedence. Store stage deadlines independently from manual and emergency expiry deadlines. Physical UNKNOWN is an internal evidence value, not a fourth lamp color to command.
+Mode precedence is FAILURE, then EMERGENCY, then unexpired MANUAL, then AUTOMATIC. A manual request can remain stored while an emergency temporarily takes precedence. Store stage deadlines independently from manual and emergency expiry deadlines. Physical UNKNOWN is an internal evidence value, not a fourth lamp color to command.
 
 Never collapse these values into one `signal_state`, and never calculate physical confirmations from desired state.
 
@@ -130,7 +130,7 @@ Commands are independent per-direction physical operations grouped into one tran
 
 Only commands for a compatible phase can request green. A preceding all-red batch must be fully confirmed before any new green batch is exposed to a controller. The green timer starts after the complete green batch is confirmed; the yellow timer starts after the complete yellow batch is confirmed. Waiting for feedback is not counted as a timed hold.
 
-Failure handling can request all-red immediately as a stop action rather than continue normal phase service. This is a proposed exception to normal yellow sequencing, not a transition to another green. Whether local hardware supplies its own mandatory yellow interval for fault stops is a hardware contract question.
+Failure handling can request all-red immediately as a stop action rather than continue normal phase service. This is a configured exception to normal yellow sequencing, not a transition to another green. The REST simulator implements this stop behavior. Real hardware's mandatory yellow and local watchdog behavior require a hardware-specific agreement before integration.
 
 ## Controller contract and physical limits
 
@@ -149,17 +149,33 @@ Feedback must reference an existing command and its junction. Direction is deriv
 
 Fresh all-red confirmation means observations of physical lamps after old work has been fenced, not merely confirmation that a message was received. An offline controller cannot be made physically safe by database writes. The API must show unverified states as UNKNOWN and the UI must show failure.
 
-ONLINE status is not a lamp-state ACK. Initial controller/sensor health is UNKNOWN until the simulator or device reports health. Device reports are ordered by server acceptance in the proposed REST simulation; real hardware will require device identifiers, session/sequence ordering, and possibly heartbeat expiry. No heartbeat interval is specified in the requirements.
+ONLINE status is not a lamp-state ACK. Initial controller, sensor, and signal health is UNKNOWN until the simulator or device reports health; restart invalidates both signal evidence and device health. Device reports are ordered by server acceptance in the REST simulation. There is one junction-wide SIGNAL_CONTROLLER; its optional direction field is accepted for PDF compatibility but does not scope the controller. Sensors and signals have direction-specific health. Real hardware will require device identifiers, session/sequence ordering, and heartbeat expiry; no heartbeat interval is specified in the requirements.
 
 ## Scheduling and timers
 
-Configurable scheduling policies determine weights, expiry, and durations. They belong in junction configuration and policy types, not HTTP handlers or frontend logic. Default proposed durations are 30-second normal green, 5-second yellow, 2-second clearance, 5-second ACK deadline, and 120-second starvation/manual/emergency bounds.
+The user confirmed the documented operating policies and the remaining simulator/fault choices before implementation. Configurable policy values belong in junction configuration and policy types, not HTTP handlers or frontend logic.
 
-At a safe selection point, first apply health/failure gating, then eligible emergencies, then manual intent, then automatic scheduling. Automatic scheduling sums queue weights and waiting-age scores and applies oldest-waiting protection. Provisional tie-break: keep the current eligible phase, then choose the phase with the oldest accepted arrival, then stable phase ID. Emergency-expired vehicles remain in the queue but lose emergency priority; the proposed normal fallback weight needs a user decision.
+| Policy | Configured value |
+| --- | --- |
+| Normal green / yellow / all-red clearance | 30 / 5 / 2 seconds, measured after complete confirmation |
+| ACK deadline | 5 seconds; no automatic retries |
+| Manual expiry / emergency priority expiry | 120 / 120 seconds |
+| Starvation threshold / scheduling age divisor | 120 / 10 seconds |
+| Normal vehicle weights | TRUCK 3, FORKLIFT 2, EMPLOYEE_VEHICLE 1; expired EMERGENCY uses weight 3 |
+| Mode priority | Failure, emergency, unexpired manual, automatic |
+| Competing emergencies | Earliest server acceptance, then arrival event ID |
+| Manual replacement | Last serialized accepted request replaces prior manual intent |
+| Offline sensor or signal | Stop new green grants and require explicit recovery after health returns |
+| Vehicle location | One queued direction per vehicle per junction |
+| Controller simulation | Standalone REST simulator with generation fencing and explicit enablement |
+
+At a safe selection point, first apply health/failure gating, then eligible emergencies, then manual intent, then automatic scheduling. Automatic scheduling sums vehicle weights plus waiting seconds divided by 10 per vehicle. Tie-break: keep the current eligible phase, then choose the phase with the oldest accepted arrival, then stable phase ID. Emergency-expired vehicles remain in the queue but lose emergency priority and use truck weight.
+
+Starvation protection uses time since the later of vehicle acceptance and the phase's last confirmed green grant, persisted in `last_served`. This refinement prevents a repeatedly served but uncleared old queue from monopolizing oldest-waiting priority. A phase with at least 120 seconds of unserved demand takes precedence at the next safe automatic selection point. Vehicle queue waiting time itself is still measured from acceptance and is not reset by a green grant.
 
 Age is measured from server acceptance of an arrival, not device clock time. Signal timing does not remove vehicles. Manual control and continuing emergencies can delay ordinary traffic indefinitely; the normal starvation threshold is not an unconditional maximum-wait guarantee. Oldest-first emergency service also relies on clearance or expiry to allow a competing emergency through.
 
-A proposed 250 ms scheduler cadence calls the same transaction path with a time input. Persist absolute deadlines; a tick that runs late extends a safe hold rather than abbreviating it. Use UTC timestamps and an injected clock in domain tests. Domain time must not move backwards relative to the previous evaluated time. Timing after a process restart is recovered through all-red rather than blindly reusing the pre-restart signal deadline.
+A 250 ms scheduler cadence calls the same transaction path with a time input. Persist absolute deadlines; a tick that runs late extends a safe hold rather than abbreviating it. Use UTC timestamps and an injected clock in domain tests. Domain time must not move backwards relative to the previous evaluated time. Timing after a process restart is recovered through all-red rather than blindly reusing the pre-restart signal deadline.
 
 There is no `sleep` in an HTTP handler and no long-lived database transaction waiting for a lamp timer.
 
@@ -244,6 +260,8 @@ erDiagram
         uuid active_manual_intent_id FK
         timestamptz stage_deadline
         timestamptz last_evaluated_at
+        jsonb last_served
+        text fault
         timestamptz updated_at
     }
     PHASES {
@@ -324,6 +342,7 @@ erDiagram
         text junction_id FK
         bigint generation
         text purpose
+        text target_phase_id FK
         jsonb target_signals
         text status
         timestamptz issued_at
@@ -340,7 +359,7 @@ erDiagram
         timestamptz acknowledged_at
     }
     CONTROLLER_FEEDBACK {
-        uuid id PK
+        bigint id PK
         uuid command_id FK
         text claimed_command_id
         text junction_id FK
@@ -360,18 +379,16 @@ erDiagram
         text payload_hash
         jsonb payload
         text outcome
+        jsonb result
         timestamptz device_at
         timestamptz received_at
     }
     ALERTS {
-        uuid id PK
-        text junction_id FK
-        text code
+        text junction_id PK,FK
+        text code PK
         text severity
-        text direction
-        uuid command_id FK
         text message
-        timestamptz opened_at
+        timestamptz opened_at PK
         timestamptz resolved_at
     }
     AUDIT_LOG {
@@ -396,7 +413,7 @@ Schema constraints and indexes:
 - Exactly one phase membership per direction for this two-phase model; no duplicated or unconfigured directions.
 - Unique phase membership, `(batch_id, direction)`, `(junction_id, generation)`, and one pending current batch per junction.
 - No negative queue count column: queue counts are `COUNT` results over queue entries.
-- At most one active queue entry per `(junction_id, vehicle_id)` across directions in the proposed model. A cross-direction movement requires clearance before arrival elsewhere; confirm this restriction.
+- At most one active queue entry per `(junction_id, vehicle_id)` across directions. A cross-direction movement requires clearance before arrival elsewhere.
 - An active manual intent is identified by runtime state; replaced/expired intents remain as history.
 - Index active queue entries by junction, direction, and acceptance time; batches by status/deadline; commands by batch; audit by `(junction_id, id)`; active alerts by junction/code.
 - UTC `timestamptz` fields; NULL actual confirmation when evidence is UNKNOWN.
@@ -491,7 +508,7 @@ These are planned module responsibilities, not generated directories. Keep depen
 
 Safety-focused tests must explore partial physical execution, new intent during WAIT_GREEN, emergency/manual overlap, competing emergencies, ACKs after supersession, and controller generation fencing. Generated sequences of domain operations should assert that conflicting greens are never requested, no conflicting green follows green without confirmed yellow/red clearance, UNKNOWN evidence cannot authorize green, and duplicate events cannot change queues twice. Run Go race detection and concurrent PostgreSQL integration scenarios for the serialized application path.
 
-No tests or runtime checks are claimed as passed: this change contains architecture documentation only.
+Validation commands and their results are recorded with the implementation and in the README.
 
 ## Git workflow and release history
 
@@ -536,15 +553,6 @@ build(docker): add compose services for api frontend and postgres
 
 Merge commit messages follow the same format and name the integrated change. The release history must show the work actually performed and the checks actually run.
 
-## Decisions still requiring answers
+## Hardware integration boundaries
 
-The following policy and hardware questions remain open:
-
-1. Confirm the first-version scope and proposed timing/scheduling/manual/emergency/event policies.
-2. Can the controller contract require durable generation fencing, command expiry, physical-state confirmation, and a conflict interlock? What local fail-safe behavior is expected if communication is lost?
-3. Should any offline sensor suspend the junction, or should it remain operational with degraded scheduling? How should device liveness expire without explicit OFFLINE events?
-4. Should controller recovery be explicitly requested after health returns, or start automatically? This design proposes explicit recovery for faults and startup reconciliation on restart.
-5. May a vehicle be queued in only one direction per junction? What normal priority should an emergency vehicle receive after emergency timeout?
-6. Are server acceptance order/time, tie-breaking rules, 250 ms scheduler cadence, standalone simulator packaging, and the proposed API additions acceptable?
-
-These are concrete product and hardware choices, not requests for permission to write code. The user has asked for questions rather than undocumented assumptions.
+The assessment uses REST simulation, with the confirmed policies above. Real hardware integration still requires agreement on watchdog behavior, heartbeat expiry, persistent generation fencing, physical feedback reliability, and device session ordering. MQTT, production authentication, and multiple active backend processes are outside the first-version scope. These limits must be stated in the README rather than treated as guarantees from backend-only code.
