@@ -96,6 +96,7 @@ On backend restart, queues, deduplication, history, and unexpired intents surviv
 
 - [API reference](docs/API.md): endpoints, request/response examples, validation, idempotency, and status codes.
 - [Demonstration guide](docs/DEMO.md): all nine assessment scenarios, controller failure controls, restart, and video walkthrough.
+- [Verification record](docs/VERIFICATION.md): checks performed and their results.
 
 The dashboard polls every second with cancellation and backoff. It retains the last successful snapshot with a stale-data warning on failures, disables stale control actions, and distinguishes confirmed all-red from unknown physical state.
 
@@ -149,7 +150,7 @@ docker compose --profile simulation up -d simulator
 
 Adjust `API_URL` to the configured API port (18080 in the verified workspace). Run this from the repository root. The script creates its own verification junction with explicitly short test durations; Junction A's 30/5/2-second policy is unchanged. It clears its traffic on completion and retains the junction/history as evidence. It retries only read observations during restart, never control mutations.
 
-Verified during development: race-enabled domain/PostgreSQL/API tests, `go vet`, frontend type check and production build, controller interlock/fencing tests, Docker image builds and readiness, full HTTP scenarios including actual restart, and Chrome checks for arrival/replay/clearance/manual operations, invalid junction, desktop rendering, and a 375-pixel mobile viewport.
+Verified during development: race-enabled domain/PostgreSQL/API tests, `go vet`, frontend type check and production build, controller interlock/fencing tests, Docker image builds and readiness, full HTTP scenarios including actual restart, and Chrome checks for arrival/replay/clearance/manual operations, invalid junction, incomplete responses, stale-data recovery, desktop rendering, and a 375-pixel mobile viewport.
 
 ## Git workflow
 
