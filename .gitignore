@@ -19,3 +19,5 @@ coverage.html
 # Local runtime output
 *.log
 .DS_Store
+.simulator-state.json
+.simulator-state.json.tmp

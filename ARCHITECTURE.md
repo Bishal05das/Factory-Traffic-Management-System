@@ -468,7 +468,7 @@ Arrival/clearance forms generate unique event IDs and show the payload/result. P
 
 Polling is proposed at one-second intervals, with cancellation, no overlapping fetches, and revision checks against out-of-order responses. On errors, retain the last successful snapshot with a visible stale-data marker, surface the failed operation, and back off repeated fetch failures. Do not render missing actual signals as RED. Traffic continues on the backend independently of browser connectivity.
 
-The automatic simulator must be explicitly enabled, run independently of the dashboard's traffic decisions, validate generation/expiry, and submit feedback through public APIs. Manual ACK mode is necessary to demonstrate partial confirmation, timeout, and reconnection. Browser-only simulator execution stops when its tab closes; a standalone process is preferable for reliable demos. This packaging choice remains open.
+The automatic simulator is a standalone Node.js process, explicitly enabled through a Docker Compose profile or its script. It runs independently of the dashboard, validates generation/expiry, persists fencing and simulated physical lamps to a separate file/volume, and submits feedback through public APIs. Manual ACK mode is available when that process is stopped, allowing partial confirmation, timeout, and reconnection demonstrations. The simulator announces UNKNOWN device health after backend startup, but does not override explicit OFFLINE reports.
 
 ## Planned source boundaries
 
