@@ -292,6 +292,13 @@ func (e Engine) Tick(s *State, now time.Time) Effects {
 		}
 	case SteadyGreen:
 		if phase != "" && phase != s.Runtime.CurrentPhase && (mode == Emergency || mode == Manual || s.Runtime.Deadline != nil && !now.Before(*s.Runtime.Deadline)) {
+			// Persist the outgoing phase's latest confirmed service so that
+			// all-red reselection cannot immediately restore an old queue
+			// ahead of the conflicting phase that triggered starvation relief.
+			if s.Runtime.LastServed == nil {
+				s.Runtime.LastServed = map[string]time.Time{}
+			}
+			s.Runtime.LastServed[s.Runtime.CurrentPhase] = now
 			e.request(s, WaitYellow, s.Runtime.CurrentPhase, Yellow, now, &out)
 		}
 	case YellowHold:

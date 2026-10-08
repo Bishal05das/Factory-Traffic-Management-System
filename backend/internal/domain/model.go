@@ -255,6 +255,9 @@ func (c Config) Validate() error {
 	if !(c.Policy.Weights[Truck] > c.Policy.Weights[Forklift] && c.Policy.Weights[Forklift] > c.Policy.Weights[Employee]) {
 		return invalid("weights must preserve truck > forklift > employee priority")
 	}
+	if c.Policy.Weights[EmergencyVehicle] != c.Policy.Weights[Truck] {
+		return invalid("expired emergency scheduling weight must equal truck weight")
+	}
 	return nil
 }
 

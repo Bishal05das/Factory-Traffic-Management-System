@@ -71,6 +71,11 @@ func (s *State) Select(now time.Time) (string, Mode) {
 			if served := s.Runtime.LastServed[phase.ID]; served.After(unservedSince) {
 				unservedSince = served
 			}
+			// A phase that is currently confirmed green is being served now,
+			// even if sensors have not yet reported vehicle clearances.
+			if s.Runtime.Stage == SteadyGreen && phase.ID == s.Runtime.CurrentPhase {
+				unservedSince = now
+			}
 			if oldest == nil || unservedSince.Before(oldestUnserved) || unservedSince.Equal(oldestUnserved) && vehicle.ArrivalEventID < oldest.ArrivalEventID {
 				copy := vehicle
 				oldest = &copy
