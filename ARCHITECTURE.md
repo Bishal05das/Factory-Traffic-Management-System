@@ -262,6 +262,7 @@ erDiagram
         timestamptz last_evaluated_at
         jsonb last_served
         text fault
+        boolean recovery_required
         timestamptz updated_at
     }
     PHASES {
@@ -417,7 +418,7 @@ Schema constraints and indexes:
 - An active manual intent is identified by runtime state; replaced/expired intents remain as history.
 - Index active queue entries by junction, direction, and acceptance time; batches by status/deadline; commands by batch; audit by `(junction_id, id)`; active alerts by junction/code.
 - UTC `timestamptz` fields; NULL actual confirmation when evidence is UNKNOWN.
-- An event for an unknown junction can be recorded with NULL resolved junction and the claimed identifier retained; malformed JSON gets a request-level rejection audit without queue mutation. Payloads must be size-bounded.
+- Unknown-junction events and invalid payloads are recorded in rejection audit entries with the claimed junction retained in details. The event ledgers reserve structurally valid events for existing junctions; malformed JSON gets a request-level rejection audit without queue mutation. Payloads are size-bounded.
 - Device event IDs use their own namespace in this design; sensor event IDs are globally unique within sensor events. Feedback has append-only receipt IDs because the source format has no feedback event ID.
 - Do not delete tombstones, deduplication records, or audit history in the first version. A later retention policy needs a defined event replay horizon.
 

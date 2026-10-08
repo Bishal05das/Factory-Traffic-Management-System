@@ -80,16 +80,17 @@ type SignalEvidence struct {
 }
 
 type Runtime struct {
-	Mode            Mode                 `json:"mode"`
-	Stage           Stage                `json:"stage"`
-	CurrentPhase    string               `json:"current_phase,omitempty"`
-	TargetPhase     string               `json:"target_phase,omitempty"`
-	Generation      int64                `json:"generation"`
-	Revision        int64                `json:"revision"`
-	Deadline        *time.Time           `json:"deadline,omitempty"`
-	LastEvaluatedAt time.Time            `json:"last_evaluated_at"`
-	Fault           string               `json:"fault,omitempty"`
-	LastServed      map[string]time.Time `json:"last_served"`
+	Mode             Mode                 `json:"mode"`
+	Stage            Stage                `json:"stage"`
+	CurrentPhase     string               `json:"current_phase,omitempty"`
+	TargetPhase      string               `json:"target_phase,omitempty"`
+	Generation       int64                `json:"generation"`
+	Revision         int64                `json:"revision"`
+	Deadline         *time.Time           `json:"deadline,omitempty"`
+	LastEvaluatedAt  time.Time            `json:"last_evaluated_at"`
+	Fault            string               `json:"fault,omitempty"`
+	LastServed       map[string]time.Time `json:"last_served"`
+	RecoveryRequired bool                 `json:"recovery_required"`
 }
 
 type Command struct {
@@ -288,7 +289,7 @@ func NewState(c Config, now time.Time) (*State, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
-	s := &State{Config: c, Runtime: Runtime{Mode: Failure, Stage: Recovering, LastEvaluatedAt: now.UTC(), LastServed: map[string]time.Time{}}, Signals: map[Direction]SignalEvidence{}, Devices: map[string]Device{}, Vehicles: map[string]Vehicle{}, Trackers: map[string]Tracker{}, Alerts: map[string]Alert{}}
+	s := &State{Config: c, Runtime: Runtime{Mode: Failure, Stage: Recovering, RecoveryRequired: true, LastEvaluatedAt: now.UTC(), LastServed: map[string]time.Time{}}, Signals: map[Direction]SignalEvidence{}, Devices: map[string]Device{}, Vehicles: map[string]Vehicle{}, Trackers: map[string]Tracker{}, Alerts: map[string]Alert{}}
 	for _, d := range Directions {
 		s.Signals[d] = SignalEvidence{Desired: Red, Actual: Unknown}
 		for _, kind := range []string{"SENSOR", "SIGNAL"} {

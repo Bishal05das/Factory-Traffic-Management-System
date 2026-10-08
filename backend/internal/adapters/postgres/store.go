@@ -264,7 +264,7 @@ func load(ctx context.Context, tx *sql.Tx, id string) (*domain.State, error) {
 	var deadline sql.NullTime
 	var lastServed []byte
 	r := &state.Runtime
-	err = tx.QueryRowContext(ctx, "SELECT effective_mode,stage,current_phase_id,target_phase_id,generation,revision,active_batch_id::text,active_manual_intent_id::text,stage_deadline,last_evaluated_at,last_served,fault FROM junction_runtime WHERE junction_id=$1", id).Scan(&r.Mode, &r.Stage, &current, &target, &r.Generation, &r.Revision, &batchID, &manualID, &deadline, &r.LastEvaluatedAt, &lastServed, &r.Fault)
+	err = tx.QueryRowContext(ctx, "SELECT effective_mode,stage,current_phase_id,target_phase_id,generation,revision,active_batch_id::text,active_manual_intent_id::text,stage_deadline,last_evaluated_at,last_served,fault,recovery_required FROM junction_runtime WHERE junction_id=$1", id).Scan(&r.Mode, &r.Stage, &current, &target, &r.Generation, &r.Revision, &batchID, &manualID, &deadline, &r.LastEvaluatedAt, &lastServed, &r.Fault, &r.RecoveryRequired)
 	if err != nil {
 		return nil, err
 	}
@@ -488,7 +488,7 @@ func (u *unit) Feedback(ctx context.Context, feedback domain.Feedback, outcome s
 	if err != nil {
 		return err
 	}
-	_, err = u.tx.ExecContext(ctx, `INSERT INTO controller_feedback(command_id,claimed_command_id,junction_id,claimed_junction_id,status,actual_state,outcome,payload,controller_at,received_at) VALUES($1,$1,$2,$2,$3,$4,$5,$6,$7,$8)`, feedback.CommandID, u.id, feedback.Status, feedback.Actual, outcome, string(body), feedback.Timestamp, u.now)
+	_, err = u.tx.ExecContext(ctx, `INSERT INTO controller_feedback(command_id,claimed_command_id,junction_id,claimed_junction_id,status,actual_state,outcome,payload,controller_at,received_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, feedback.CommandID, feedback.CommandID, u.id, u.id, feedback.Status, feedback.Actual, outcome, string(body), feedback.Timestamp, u.now)
 	return err
 }
 
@@ -579,7 +579,7 @@ func (u *unit) Save(ctx context.Context, s *domain.State, effects domain.Effects
 	if s.Pending != nil {
 		batchID = s.Pending.ID
 	}
-	_, err = u.tx.ExecContext(ctx, `UPDATE junction_runtime SET effective_mode=$2,stage=$3,current_phase_id=NULLIF($4,''),target_phase_id=NULLIF($5,''),generation=$6,revision=$7,active_batch_id=NULLIF($8,'')::uuid,active_manual_intent_id=NULLIF($9,'')::uuid,stage_deadline=$10,last_evaluated_at=$11,last_served=$12,fault=$13,updated_at=$14 WHERE junction_id=$1`, u.id, r.Mode, r.Stage, r.CurrentPhase, r.TargetPhase, r.Generation, r.Revision, batchID, manualID, r.Deadline, r.LastEvaluatedAt, string(lastServed), r.Fault, u.now)
+	_, err = u.tx.ExecContext(ctx, `UPDATE junction_runtime SET effective_mode=$2,stage=$3,current_phase_id=NULLIF($4,''),target_phase_id=NULLIF($5,''),generation=$6,revision=$7,active_batch_id=NULLIF($8,'')::uuid,active_manual_intent_id=NULLIF($9,'')::uuid,stage_deadline=$10,last_evaluated_at=$11,last_served=$12,fault=$13,updated_at=$14,recovery_required=$15 WHERE junction_id=$1`, u.id, r.Mode, r.Stage, r.CurrentPhase, r.TargetPhase, r.Generation, r.Revision, batchID, manualID, r.Deadline, r.LastEvaluatedAt, string(lastServed), r.Fault, u.now, r.RecoveryRequired)
 	if err != nil {
 		return err
 	}

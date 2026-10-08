@@ -44,6 +44,7 @@ func (e Engine) Fail(s *State, reason string, now time.Time, out *Effects) {
 	now = s.Time(now)
 	alreadyFailed := s.Runtime.Stage == FailureStop
 	s.Runtime.Fault = reason
+	s.Runtime.RecoveryRequired = true
 	s.Runtime.Mode = Failure
 	s.Runtime.TargetPhase = ""
 	s.Runtime.Deadline = nil
@@ -75,11 +76,15 @@ func (e Engine) Fail(s *State, reason string, now time.Time, out *Effects) {
 
 func (e Engine) Recover(s *State, now time.Time) (Effects, error) {
 	out := Effects{}
+	if s.Runtime.Stage != FailureStop && s.Runtime.Stage != Recovering {
+		return out, conflict("recovery is only allowed after a fault or during startup reconciliation")
+	}
 	if !s.Healthy() {
 		return out, conflict("all configured devices must report ONLINE before recovery")
 	}
 	now = s.Time(now)
 	s.Runtime.Mode = Failure
+	s.Runtime.RecoveryRequired = true
 	s.Runtime.Fault = ""
 	s.Runtime.CurrentPhase = ""
 	s.Runtime.TargetPhase = ""
@@ -106,6 +111,7 @@ func (e Engine) Restart(s *State, now time.Time) Effects {
 	}
 	s.Runtime.Generation++ // Fence any work from the old process even before a new batch.
 	s.Runtime.Stage = Recovering
+	s.Runtime.RecoveryRequired = true
 	s.Runtime.Mode = Failure
 	s.Runtime.CurrentPhase = ""
 	s.Runtime.TargetPhase = ""
@@ -143,11 +149,18 @@ func (e Engine) Acknowledge(s *State, known Command, feedback Feedback, now time
 	if feedback.Actual != Red && feedback.Actual != Yellow && feedback.Actual != Green && feedback.Actual != Unknown {
 		return out, "rejected", invalid("invalid actual signal state")
 	}
+	if feedback.Timestamp != nil && feedback.Timestamp.IsZero() {
+		return out, "rejected", invalid("controller timestamp cannot be zero")
+	}
 	now = s.Time(now)
 	out.Audit = append(out.Audit, Audit{Type: "CONTROLLER_ACKNOWLEDGEMENT", At: now, Direction: known.Direction, CommandID: known.ID, Details: map[string]any{"status": feedback.Status, "actual_state": feedback.Actual}})
 	if known.Status == "ACK" && feedback.Status == "ACK" && feedback.Actual == known.Requested {
 		out.Record("DUPLICATE_ACK", now, map[string]any{"command_id": known.ID})
 		return out, "duplicate", nil
+	}
+	if known.Status == "ACK" && feedback.Actual != known.Requested {
+		e.Fail(s, "CONTROLLER_STATE_MISMATCH", now, &out)
+		return out, "fault", nil
 	}
 	current := s.Pending != nil && s.Pending.ID == known.BatchID && s.Pending.Status == "PENDING" && known.Generation == s.Runtime.Generation
 	if !current {
@@ -190,6 +203,7 @@ func (e Engine) Acknowledge(s *State, known Command, feedback Feedback, now time
 		s.Pending.CompletedAt = &now
 		switch s.Runtime.Stage {
 		case WaitRed:
+			s.Runtime.RecoveryRequired = false
 			s.Runtime.Stage = AllRedHold
 			s.Runtime.CurrentPhase = ""
 			deadline := now.Add(seconds(s.Config.Policy.ClearanceSeconds))

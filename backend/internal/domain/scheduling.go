@@ -24,7 +24,7 @@ func (e Engine) expire(s *State, now time.Time, out *Effects) {
 // Select chooses intent only. Tick is the only operation that translates intent
 // into transitions, so scheduler priority cannot bypass the clearance stages.
 func (s *State) Select(now time.Time) (string, Mode) {
-	if s.Runtime.Fault != "" || s.Runtime.Stage == FailureStop || s.Runtime.Stage == Recovering {
+	if s.Runtime.RecoveryRequired || s.Runtime.Fault != "" || s.Runtime.Stage == FailureStop || s.Runtime.Stage == Recovering {
 		return "", Failure
 	}
 	var emergency *Vehicle

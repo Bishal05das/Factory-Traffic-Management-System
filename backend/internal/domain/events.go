@@ -98,7 +98,7 @@ func (e Engine) Control(s *State, request ControlRequest, now time.Time) (Effect
 	if request.Command == "RETURN_TO_AUTOMATIC" && request.Direction != "" {
 		return out, invalid("return to automatic does not take a direction")
 	}
-	if s.Runtime.Stage == FailureStop || s.Runtime.Stage == Recovering || !s.Healthy() {
+	if s.Runtime.RecoveryRequired || s.Runtime.Stage == FailureStop || s.Runtime.Stage == Recovering || !s.Healthy() {
 		return out, conflict("junction must recover before accepting traffic control")
 	}
 	now = s.Time(now)
