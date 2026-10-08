@@ -1,4 +1,4 @@
-import { directions, Status, title } from "@/lib/api";
+import { directions, phaseLabel, Status, title } from "@/lib/api";
 import { Badge, Lamp, SectionHeading } from "./shared";
 
 export function Intersection({ status }: { status: Status }) {
@@ -12,11 +12,7 @@ export function Intersection({ status }: { status: Status }) {
         <div className="road road-vertical" />
         <div className="junction-center">
           <span>{status.junction_id}</span>
-          <small>
-            {status.phase
-              ? status.phase.replaceAll("_", " + ")
-              : "ALL RED / UNVERIFIED"}
-          </small>
+          <small>{phaseLabel(status).toUpperCase()}</small>
         </div>
         {directions.map((direction) => (
           <div

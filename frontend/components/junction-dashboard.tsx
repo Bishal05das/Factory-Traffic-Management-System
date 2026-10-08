@@ -6,6 +6,7 @@ import {
   clock,
   Direction,
   directions,
+  phaseLabel,
   request,
   Status,
   title,
@@ -151,11 +152,7 @@ export function JunctionDashboard({ junctionId }: { junctionId: string }) {
             </div>
             <div>
               <span>Current phase</span>
-              <strong className="metric-label">
-                {status.phase
-                  ? status.phase.replaceAll("_", " + ")
-                  : "All red / unverified"}
-              </strong>
+              <strong className="metric-label">{phaseLabel(status)}</strong>
             </div>
             <div>
               <span>Vehicles waiting</span>
