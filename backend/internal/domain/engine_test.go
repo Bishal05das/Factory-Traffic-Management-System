@@ -258,6 +258,25 @@ func TestStarvationAccountsForLastService(t *testing.T) {
 	}
 }
 
+func TestContinuousGreenCannotHideStarvedConflictingTraffic(t *testing.T) {
+	h := northGreen(t)
+	h.arrival(t, "second-north-truck", North, Truck)
+	h.now = h.now.Add(time.Second)
+	h.arrival(t, "waiting-east-employee", East, Employee)
+	h.tick(120 * time.Second)
+	if h.s.Runtime.Stage != WaitYellow {
+		t.Fatal("continuously served north traffic hid overdue east demand")
+	}
+	h.ackAll(t)
+	h.tick(5 * time.Second)
+	h.ackAll(t)
+	h.tick(2 * time.Second)
+	h.ackAll(t)
+	if h.s.Runtime.CurrentPhase != "EAST_WEST" {
+		t.Fatal("clearance reselected the phase that had just been served")
+	}
+}
+
 func TestRestartInvalidatesPhysicalStateAtEveryStage(t *testing.T) {
 	for _, stage := range []Stage{WaitGreen, SteadyGreen, WaitYellow, YellowHold, WaitRed, AllRedHold} {
 		t.Run(string(stage), func(t *testing.T) {
